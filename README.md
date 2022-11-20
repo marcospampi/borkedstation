@@ -7,5 +7,5 @@ Just drop you bios under `user_data`, this thing's being developed using the eur
 
 #### Thanks to the senpais
 - The guy behind Rustation, [Lionel Flandrin](https://gitlab.com/flio), and it's [guide](https://github.com/simias/psx-guide) I'm following to kickstart this cursed program.
-- That poor fella of [NOCASH])(https://problemkaputt.de/)
+- That poor fella of [NOCASH](https://problemkaputt.de/)
 - The guys behind the less crappy wiki fork of NOCASH's, [https://psx-spx.consoledev.net/](https://psx-spx.consoledev.net/).
