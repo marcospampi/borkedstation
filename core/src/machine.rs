@@ -5,7 +5,8 @@ use crate::{cpu::Cpu, bus::Bus};
 
 pub struct Machine {
     pub cpu: RefCell<Cpu>,
-    pub bus: Bus
+    pub bus: Bus,
+    pub cop0: Cop0
 
 }
 

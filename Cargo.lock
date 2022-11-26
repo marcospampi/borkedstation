@@ -5,10 +5,3 @@ version = 3
 [[package]]
 name = "borkedstation"
 version = "0.1.0"
-dependencies = [
- "borkedstation-core",
-]
-
-[[package]]
-name = "borkedstation-core"
-version = "0.1.0"

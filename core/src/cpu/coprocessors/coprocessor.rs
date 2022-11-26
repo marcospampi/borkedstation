@@ -1,5 +1,4 @@
 use crate::machine::Machine;
-use super::Cpu;
 
 pub trait Coprocessor {
     fn execute(&mut self, machine: &Machine, command: u32);

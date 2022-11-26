@@ -1,4 +1,4 @@
 mod instructions;
 mod cpu;
-mod coprocessor;
-pub use {cpu::*, coprocessor::*, instructions::*};
+mod coprocessors;
+pub use {cpu::*, coprocessors::*, instructions::*};

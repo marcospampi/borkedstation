@@ -1,6 +1,6 @@
 use crate::{machine::Machine, bus::DeviceBusInterface};
 
-use super::{coprocessor::Coprocessor, instructions::*};
+use super::{instructions::*};
 
 pub const REG_SP: usize = 29;
 pub const REG_GP: usize = 28;
@@ -39,16 +39,7 @@ impl Cpu {
         while self.step(machine) {}
         return false;
     }
-    fn get_coprocessor(&self, index: usize) -> Option<&dyn Coprocessor> {
-        match index {
-            _ => None
-        }
-    }
-    fn get_coprocessor_mut(&mut self, index: usize) -> Option<&mut dyn Coprocessor> {
-        match index {
-            _ => None
-        }
-    }
+
     fn step_pc(&mut self, jump: Option<u32>) -> u32 {
         let current_pc = self.pc.0;
         if let Some(jump) = jump {
@@ -65,12 +56,8 @@ impl Cpu {
 
     fn step(&mut self, machine: &Machine ) -> bool {
         let pc = self.step_pc(None);
-        if let Some(inst) = machine.bus.try_fetch(pc) {
-            self.execute(machine, inst, pc)
-        }
-        else {
-            false
-        }
+        let inst = Inst::from(machine.bus.read32(pc));
+        self.execute(machine, inst, pc)
     }
     fn execute(&mut self, machine: &Machine, inst: Inst, pc: u32) -> bool {
 
@@ -222,22 +209,22 @@ impl Cpu {
             Inst::Syscall { .. } => self.raise_exception(machine, pc),
             Inst::Break { .. } => self.raise_exception(machine, pc),
             Inst::MoveFromCoprocessorData { coprocessor, src, dst } => {
-                if let Some(coprocessor) = self.get_coprocessor(coprocessor as _) {
+                todo!()
+                /*if let Some(coprocessor) = self.get_coprocessor(coprocessor as _) {
                     reg!(dst) = coprocessor.read( src);
                 }
                 else {
                     self.raise_exception(machine, pc)
-                }
-                todo!();
+                }*/
             },
             Inst::MoveToCoprocessorData { coprocessor, src, dst } => {
-                let value = reg!(src);
+                /*let value = reg!(src);
                 if let Some(coprocessor) = self.get_coprocessor_mut(coprocessor as _) {
                     coprocessor.write(dst, value);
                 }
                 else {
                     self.raise_exception(machine, pc)
-                }
+                }*/
                 todo!();
             },
             Inst::CopyFromCoprocessorControl { coprocessor, src, dst } => {
@@ -252,7 +239,9 @@ impl Cpu {
             Inst::LoadWord { dst, base, offset } => todo!(),
             Inst::LoadHalfWord { dst, base, offset, sign_extend } => todo!(),
             Inst::LoadByte { dst, base, offset, sign_extend } => todo!(),
-            Inst::StoreWord { src, base, offset } => todo!(),
+            Inst::StoreWord { src, base, offset } => {
+                machine.bus.write32(reg!(base).wrapping_add(offset as i32 as _), reg!(src));
+            },
             Inst::StoreHalfWord { src, base, offset } => todo!(),
             Inst::StoreByte { src, base, offset } => todo!(),
         }

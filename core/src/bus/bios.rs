@@ -93,10 +93,6 @@ impl DeviceBusInterface for Bios {
 
     fn write8(&self, _address: u32, _value: u8) { todo!("Throwind exception at this BS.") }
 
-    fn try_fetch(&self, address: u32 ) -> Option<crate::cpu::Inst> {
-        Some ( self.fetch(address & BIOS_ADDRESS_MASK) )
-    }
-
     fn in_range(&self, address: u32) -> bool {
         BIOS_IO_RANGE.contains(&(address & MASK_ADDRESS_SPACE))
     }
