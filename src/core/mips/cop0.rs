@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use super::Coprocessor;
 /*
 00h INT     Interrupt
@@ -46,15 +48,27 @@ cop0r15     - PRID - Processor ID (R)
 cop0r16-r31 - Garbage
 cop0r32-r63 - N/A - None such (Control regs) */
 
-pub struct Cop0 {}
+#[derive(Default)]
+pub struct Cop0 {
+    system_status: Cell<u32>,
+    exception_cause: Cell<u32>,
+}
 
 impl Coprocessor for Cop0 {
     fn read(&self, reg: u8) -> u32 {
-        todo!()
+        match reg {
+            12 => self.system_status.get(),
+            13 => self.exception_cause.get(),
+            _ => panic!("Panico"),
+        }
     }
 
     fn write(&self, reg: u8, val: u32) {
-        todo!()
+        match reg {
+            12 => self.system_status.set(val),
+            13 => self.exception_cause.set(val),
+            _ => panic!("Panico"),
+        }
     }
 
     fn command(&self, command: u32) {

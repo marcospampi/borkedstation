@@ -1,14 +1,17 @@
 use std::{ptr::NonNull, pin::Pin, vec};
 
-use super::{mips::mips::Mips, bus::{BusDevice, BusError, memory::{RomMemory, RamMemory, Memory}}};
+use super::{mips::mips::Mips, bus::{BusDevice, BusError, memory::{RomMemory, RamMemory, Memory}, io::IOMap}};
 const RAM_SIZE: u32 = 2 * 1024 * 1024; // 2MiB
 const BIOS_SIZE: u32 = 512 * 1024; // 512KiB
+const SCRATCHPAD_SIZE: u32 = 4 * 1024; // 4KiB
 pub const MASK_ADDRESS_SPACE: u32 = 0x1FFFFFFF;
 
 pub struct Machine {
     pub cpu: Mips,
+    pub io: IOMap,
     pub ram: RamMemory,
     pub rom: RomMemory,
+    pub scratchpad: RamMemory,
     _marker: std::marker::PhantomPinned
 }
 
@@ -16,8 +19,10 @@ impl Machine {
     pub fn new() -> Pin<Box<Self>> {
         let machine = Machine { 
             cpu: Mips::new(NonNull::dangling()),
-            rom: RomMemory::from(Memory::new(BIOS_SIZE)),
+            io: IOMap::default(),
             ram: RamMemory::new(RAM_SIZE),
+            rom: RomMemory::from(Memory::new(BIOS_SIZE)),
+            scratchpad: RamMemory::new(SCRATCHPAD_SIZE),
             _marker: Default::default()
         };
         let mut boxed = Box::pin(machine);
@@ -37,6 +42,8 @@ impl Machine {
             cpu: Mips::new(NonNull::dangling()),
             rom: rom,
             ram: RamMemory::new(RAM_SIZE),
+            io: IOMap::default(),
+            scratchpad: RamMemory::new(SCRATCHPAD_SIZE),
             _marker: Default::default()
         };
         let mut boxed = Box::pin(machine);
@@ -72,11 +79,12 @@ impl BusDevice for Machine {
         match addr {
             0x00000000..0x00200000 => self.ram.read::<U>(addr & 0x1FFFFF),
             0x1F000000..0x1F800000 => Err(BusError::CannotRead),// todo!("Expansion Region 1 (ROM/RAM)"),
-            0x1F800000..0x1F800400 => Err(BusError::CannotRead),// todo!("Scratchpad (D-Cache used as Fast RAM)"),
-            0x1F801000..0x1F802000 => Err(BusError::CannotRead),// todo!("I/O Ports"),
+            0x1F800000..0x1F800400 => self.scratchpad.read::<U>(addr & 0x3FF),// todo!("Scratchpad (D-Cache used as Fast RAM)"),
+            0x1F801000..0x1F802000 => self.io.read::<U>(addr),// todo!("I/O Ports"),
             0x1F802000..0x1F803000 => Err(BusError::CannotRead),// todo!("Expansion Region 2 (I/O Ports)"),
             0x1FA00000..0x1FC00000 => Err(BusError::CannotRead),// todo!("Expansion Region 3 (SRAM BIOS region for DTL cards)"),
             0x1FC00000..0x1FC80000 => self.rom.read::<U>(addr & 0x7FFFF),
+            0x1FFE0000..0x1FFE0200 => self.io.read::<U>(addr), // cache control
             _ => Err(BusError::BadAddress)
         }
     }
@@ -92,11 +100,12 @@ impl BusDevice for Machine {
         match addr {
             0x00000000..0x00200000 => self.ram.write::<U>(addr & 0x1FFFFF, val),
             0x1F000000..0x1F800000 => Err(BusError::CannotWrite),//todo!("Expansion Region 1 (ROM/RAM)"),
-            0x1F800000..0x1F800400 => Err(BusError::CannotWrite),//todo!("Scratchpad (D-Cache used as Fast RAM)"),
-            0x1F801000..0x1F802000 => Err(BusError::CannotWrite),//todo!("I/O Ports"),
+            0x1F800000..0x1F800400 => self.scratchpad.write(addr & 0x3FF, val),//todo!("Scratchpad (D-Cache used as Fast RAM)"),
+            0x1F801000..0x1F802000 => self.io.write::<U>(addr, val),// todo!("I/O Ports"),
             0x1F802000..0x1F803000 => Err(BusError::CannotWrite),//todo!("Expansion Region 2 (I/O Ports)"),
             0x1FA00000..0x1FC00000 => Err(BusError::CannotWrite),//todo!("Expansion Region 3 (SRAM BIOS region for DTL cards)"),
             0x1FC00000..0x1FC80000 => self.rom.write::<U>(addr & 0x7FFFF, val),
+            0x1FFE0000..0x1FFE0200 => self.io.write::<U>(addr, val), // cache control
             _ => Err(BusError::BadAddress)
         }
     }

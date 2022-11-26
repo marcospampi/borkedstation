@@ -1,5 +1,6 @@
 use super::Coprocessor;
 
+#[derive(Default)]
 pub struct Gte {
 
 }

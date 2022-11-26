@@ -1,5 +1,6 @@
 pub mod memory;
 pub mod mmio;
+pub mod io;
 use mmio::U8U16U32;
 pub trait Unit: Sized + Into<u32> + Copy + 'static {
     fn from_u8u16u32(from: U8U16U32) -> Self;

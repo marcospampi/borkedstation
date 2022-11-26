@@ -1,7 +1,7 @@
 use core::panic;
 use std::{cell::Cell, ptr::NonNull};
 
-use crate::core::{machine::Machine, bus::BusDevice};
+use crate::core::{machine::Machine, bus::BusDevice, mips::Coprocessor};
 
 use super::{cop0::Cop0, gte::Gte, };
 pub const REG_SP: usize = 29;
@@ -9,7 +9,7 @@ pub const REG_GP: usize = 28;
 pub const REG_FP: usize = 30;
 pub const REG_RA: usize = 31;
 pub const REG_PC_RESET: u32 = 0xbfc00000;
-
+pub const JMP_PC_MASK: u32 = 0xF0000000;
 pub struct Mips {
     pub cop0: Cop0,
     pub cop2: Gte,
@@ -25,19 +25,20 @@ impl Mips {
 
     pub fn new(machine: NonNull<Machine>) -> Self {
         let cpu = Self {
-            cop0: Cop0 {  },
-            cop2: Gte {  },
+            cop0: Cop0::default(),
+            cop2: Gte::default(),
             gprs: Default::default(),
             hi_lo: Default::default(),
             pc: Cell::new((REG_PC_RESET, REG_PC_RESET + 4)),
             machine
         };
-        for i in 1..31 {
-            cpu.gprs[i].set(0xDEADBEEF)
-        }
+        //for i in 1..31 {
+        //    cpu.gprs[i].set(0xDEADBEEF)
+        //}
         cpu
     }
     pub fn run(&self) {
+        let mut counter = 0;
         loop {
             let pc = self.step_pc();
 
@@ -47,15 +48,16 @@ impl Mips {
                 Ok( word ) => self.execute(word, pc),
                 Err( err ) => panic!("Error during fetch, {:#?}",err)
             }
+            counter = counter + 1;
         }
     }
     fn get_machine(&self) -> &Machine {
         unsafe { std::mem::transmute(self.machine) }
     }
-    fn jump(&self, offset: u32) -> u32 {
+    fn jump(&self, pc: u32) {
         let current = self.pc.get();
-        self.pc.set((current.1, current.0.wrapping_add(offset)));
-        current.0    
+        self.pc.set((current.0, pc));
+        
     }
     fn step_pc(&self ) -> u32 {
         let current = self.pc.get();
@@ -71,7 +73,7 @@ impl Mips {
         macro_rules! funct {() => {(inst) &0x3F};}
         macro_rules! opcode {() => {(inst>>26) &0x3F};}
         macro_rules! imm {() => {((((inst)&0xFFFF) as i16) as i32) as u32 };}
-        macro_rules! imm26 {() => {((((inst)&0x3ffffff) << 6) as i32 >> 6) as u32 };}
+        macro_rules! imm26 {() => { inst & 0x3ffffff };}
         macro_rules! coproc {() => {(inst>>26) &0x3};}
         macro_rules! coproc_cmd {() => {(inst>>26) &0x1ffffff};}
 
@@ -241,7 +243,7 @@ impl Mips {
                 };
                 
                 if should_jump {
-                    self.jump((imm!() as i32 as u32) << 2);
+                    self.jump(pc.wrapping_add(4).wrapping_add(imm!() << 2));
                     if should_link {
                         self.gprs[REG_RA].set(pc + 8);
                     }
@@ -251,39 +253,39 @@ impl Mips {
             },
             // j/jmp
             (0b000010, _) => {
-                self.jump(imm26!() as i32 as _);
+                self.jump((pc & JMP_PC_MASK).wrapping_add(imm26!() << 2));
             },
             // jal/jump and link
             (0b000011, _) => {
-                self.jump(imm26!() as i32 as _);
+                self.jump((pc & JMP_PC_MASK).wrapping_add(imm26!() << 2));
                 self.gprs[REG_RA].set(pc + 8);
             },
             // beq
             (0b000100, _) => {
                 let cond = get!(rs!()) == get!(rt!());
                 if cond {
-                    self.jump(imm!() << 2);
+                    self.jump(pc.wrapping_add(4).wrapping_add(imm!() << 2));
                 }
             } ,
             // bne
             (0b000101, _) => {
                 let cond = get!(rs!()) != get!(rt!());
                 if cond {
-                    self.jump(imm!() << 2);
+                    self.jump(pc.wrapping_add(4).wrapping_add(imm!() << 2));
                 }
             },
             // bltz
             (0b000110, _) => {
                 let cond = get!(rs!()) as i32 <= 0;
                 if cond {
-                    self.jump(imm!() << 2);
+                    self.jump(pc.wrapping_add(4).wrapping_add(imm!() << 2));
                 }
             },
             // bgtz
             (0b000111, _) => {
                 let cond = get!(rs!()) as i32 > 0;
                 if cond {
-                    self.jump(imm!() << 2);
+                    self.jump(pc.wrapping_add(4).wrapping_add(imm!() << 2));
                 }
             },
             // addi 
@@ -308,7 +310,7 @@ impl Mips {
             // xori
             (0b001110, _) => set!(rd!(), get!(rs!()) ^ imm!() ), // Inst::Xor { dst: rt!(), src1: rs!(), src2: VariantOperand::Imm(imm!())},
             // lui
-            (0b001111, _) => set!(rd!(), get!(rd!()) | imm!() << 16 ), // Inst::LoadUpperImmediate { dst: rt!(), src: imm!() },
+            (0b001111, _) => set!(rt!(),  imm!() << 16 ), // Inst::LoadUpperImmediate { dst: rt!(), src: imm!() },
             //0b010000   //Inst::CoprocessorRunCommand { coprocessor: 0, command: coproc_cmd!() },
             //|0b010001  //Inst::CoprocessorRunCommand { coprocessor: 1, command: coproc_cmd!() },
             //|0b010010  //Inst::CoprocessorRunCommand { coprocessor: 2, command: coproc_cmd!() },
@@ -318,13 +320,23 @@ impl Mips {
             //    let funct = funct!();
             //    match (opt,funct) {
             //        (0b00100,0b00000) => Inst::MoveToCoprocessorData { coprocessor, src: rd!(), dst: rt!() },
-            //        (0b00110,0b00000) => Inst::CopyToCoprocessorControl { coprocessor, src: rd!(), dst: rt!() },
             //        (0b00000,0b00000) => Inst::MoveFromCoprocessorData { coprocessor, dst: rd!(), src: rt!() },
+            //        (0b00110,0b00000) => Inst::CopyToCoprocessorControl { coprocessor, src: rd!(), dst: rt!() },
             //        (0b00010,0b00000) => Inst::CopyFromCoprocessorControl { coprocessor,  dst: rd!(), src: rt!()},
             //        _ => Inst::CoprocessorRunCommand { coprocessor, command: coproc_cmd!() }
             //    }*/
 //
             //}//Inst::CoprocessorRunCommand { coprocessor: 3, command: coproc_cmd!() },
+            (0b010000,0) => {
+                let funct = rs!();
+                match funct {
+                    0b00100 => { self.cop0.write(rd!(), get!(rt!())) },
+                    0b00000 => { set!(rd!(), self.cop0.read(rt!()))},
+                    _ => panic!("Panico")
+                    //0b00110 => { self.cop0.write(rd!() << 1, get!(rt!()))},
+                    //0b00010 => {},
+                }
+            }
             (0b100000,_) => {
                 let addr = get!(rs!()).wrapping_add(imm!());
                 match self.get_machine().read::<u8>(addr) {
