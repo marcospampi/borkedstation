@@ -1,3 +1,4 @@
+use core::panic;
 use std::{cell::Cell, ptr::NonNull};
 
 use crate::core::{machine::Machine, bus::BusDevice};
@@ -23,23 +24,43 @@ pub struct Mips {
 impl Mips {
 
     pub fn new(machine: NonNull<Machine>) -> Self {
-        Self {
+        let cpu = Self {
             cop0: Cop0 {  },
             cop2: Gte {  },
             gprs: Default::default(),
             hi_lo: Default::default(),
             pc: Cell::new((REG_PC_RESET, REG_PC_RESET + 4)),
             machine
+        };
+        for i in 1..31 {
+            cpu.gprs[i].set(0xDEADBEEF)
+        }
+        cpu
+    }
+    pub fn run(&self) {
+        loop {
+            let pc = self.step_pc();
+
+            let fetch_next_instruction = self.get_machine().read(pc);
+
+            match fetch_next_instruction {
+                Ok( word ) => self.execute(word, pc),
+                Err( err ) => panic!("Error during fetch, {:#?}",err)
+            }
         }
     }
     fn get_machine(&self) -> &Machine {
         unsafe { std::mem::transmute(self.machine) }
     }
     fn jump(&self, offset: u32) -> u32 {
-        todo!()
+        let current = self.pc.get();
+        self.pc.set((current.1, current.0.wrapping_add(offset)));
+        current.0    
     }
-    fn step_pc(&self, pc: u32 ) -> u32 {
-        todo!()
+    fn step_pc(&self ) -> u32 {
+        let current = self.pc.get();
+        self.pc.set((current.1, current.1 + 4));
+        current.0
     }
     fn execute(&self, inst: u32, pc: u32) {
         self.gprs[0].set(0);
@@ -68,22 +89,22 @@ impl Mips {
 
         match opcode_funct_pair {
             // sll shift left
-            (0b000000, 0b000100) => set!(rd!(), get!(rs!()) << get!(rt!())),
+            (0b000000, 0b000100) => set!(rd!(), get!(rt!()) << get!(rs!())),
 
             // slr shift right
-            (0b000000, 0b000110) => {set!(rd!(), get!(rs!()) >> get!(rt!()))},
+            (0b000000, 0b000110) => {set!(rd!(), get!(rt!()) >> get!(rs!()))},
 
             // slra shift right arithmetic
-            (0b000000, 0b000111) => set!(rd!(), (get!(rs!()) as i32 >> get!(rt!()) as i32) as u32 ), 
+            (0b000000, 0b000111) => set!(rd!(), (get!(rt!()) as i32 >> get!(rs!()) as i32) as u32 ), 
 
-            // slra shift left with shamt
-            (0b000000, 0b000000) => set!(rd!(), get!(rs!()) << shamt!()),
+            // sll shift left with shamt
+            (0b000000, 0b000000) => set!(rd!(), get!(rt!()) << shamt!()),
 
-            // slra shift right with shamt
-            (0b000000, 0b000010) => set!(rd!(), get!(rs!()) >> shamt!()),
+            // slr shift right with shamt
+            (0b000000, 0b000010) => set!(rd!(), get!(rt!()) >> shamt!()),
 
             // slra shift right arithmetic with shamt
-            (0b000000, 0b000011) => set!(rd!(), (get!(rs!()) as i32 >> shamt!() as i32) as u32 ),
+            (0b000000, 0b000011) => set!(rd!(), (get!(rt!()) as i32 >> shamt!() as i32) as u32 ),
 
             // jump register
             (0b000000, 0b001000) => {
@@ -358,6 +379,7 @@ impl Mips {
                 }
             },//Inst::StoreHalfWord { src: rt!(), base: rs!(), offset: imm!() },//self.op_sh(instruction, debugger, shared, renderer),
             (0b101010,_) => todo!(), //self.op_swl(instruction, debugger, shared, renderer),
+            // sw
             (0b101011,_) => {
                 let addr = get!(rs!()).wrapping_add(imm!());
                 match self.get_machine().write::<u32>(addr, get!(rt!())) {
@@ -385,27 +407,17 @@ mod tests {
     use crate::core::machine::Machine;
     use super::*;
     #[test]
-    fn test() {
+    fn test_gauss() {
         let machine = Machine::new();
         let n = 1024;
         let expected = n * (n + 1) / 2;
         machine.cpu.gprs[4].set(n);
-        let insts = [
-            0x24820001, // addiu	r2,r4,1
-            0x00440018, // mult	r2,r4
-            0x00001812, // mflo	v1
-            0x00031042, // srl	r2,r3,0x1f
-            0x00431021  // addu	r2,r2,r3
-        ];
-        //for (i,inst) in insts.iter().enumerate() {
-        //    machine.cpu.execute(*inst, (i*4) as u32);
-        //}
+
         {
             machine.cpu.execute(0x24820001, 0 ); // addiu	r2,r4,1 
             machine.cpu.execute(0x00440018, 0 ); // mult	r2,r4 
             machine.cpu.execute(0x00001812, 0 ); // mflo	r3 
-            machine.cpu.execute(0x00031082, 0 ); // srl	r2,r3,0x1f 
-            machine.cpu.execute(0x00431021, 0 ); // addu	r2,r2,r3 
+            machine.cpu.execute(0x00031042, 0 ); // srl	r2,r3,0x1 
         }
         assert_eq!(machine.cpu.gprs[2].get(), expected);
     }
