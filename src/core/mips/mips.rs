@@ -49,6 +49,7 @@ impl Mips {
                 Err( err ) => panic!("Error during fetch, {:#?}",err)
             }
             counter = counter + 1;
+
         }
     }
     fn get_machine(&self) -> &Machine {
@@ -293,7 +294,7 @@ impl Mips {
                 let rs = get!(rs!());
                 
                 match rs.checked_add(imm!()) {
-                    Some(rd) => set!(rd!(), rd),
+                    Some(res) => set!(rt!(), res),
                     _ => panic!("No exception till now")
                 }
             }, 
@@ -385,6 +386,7 @@ impl Mips {
             },//Inst::StoreByte { src: rt!(), base: rs!(), offset: imm!() },//self.op_sb(instruction, debugger, shared, renderer),
             (0b101001,_) => {
                 let addr = get!(rs!()).wrapping_add(imm!());
+        
                 match self.get_machine().write::<u16>(addr, get!(rt!()) as _) {
                     Ok( _ ) => (),
                     Err( err ) => panic!("Bus error! {:?}", err)

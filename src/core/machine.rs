@@ -1,6 +1,6 @@
-use std::{ptr::NonNull, pin::Pin, vec};
+use std::{ptr::NonNull, pin::Pin };
 
-use super::{mips::mips::Mips, bus::{BusDevice, BusError, memory::{RomMemory, RamMemory, Memory}, io::IOMap}};
+use super::{mips::mips::Mips, bus::{BusDevice, BusError, memory::{RomMemory, RamMemory, Memory}, io::IOMap, DummyDevice}};
 const RAM_SIZE: u32 = 2 * 1024 * 1024; // 2MiB
 const BIOS_SIZE: u32 = 512 * 1024; // 512KiB
 const SCRATCHPAD_SIZE: u32 = 4 * 1024; // 4KiB
@@ -12,6 +12,7 @@ pub struct Machine {
     pub ram: RamMemory,
     pub rom: RomMemory,
     pub scratchpad: RamMemory,
+    pub dummy: DummyDevice,
     _marker: std::marker::PhantomPinned
 }
 
@@ -23,6 +24,7 @@ impl Machine {
             ram: RamMemory::new(RAM_SIZE),
             rom: RomMemory::from(Memory::new(BIOS_SIZE)),
             scratchpad: RamMemory::new(SCRATCHPAD_SIZE),
+            dummy: DummyDevice::default(),
             _marker: Default::default()
         };
         let mut boxed = Box::pin(machine);
@@ -44,6 +46,7 @@ impl Machine {
             ram: RamMemory::new(RAM_SIZE),
             io: IOMap::default(),
             scratchpad: RamMemory::new(SCRATCHPAD_SIZE),
+            dummy: DummyDevice::default(),
             _marker: Default::default()
         };
         let mut boxed = Box::pin(machine);
@@ -70,10 +73,9 @@ impl Machine {
 impl BusDevice for Machine {
     fn read<U: super::bus::Unit>(&self, addr: u32 ) -> super::bus::Result<U> {
         // word alignment check
-        if addr & 3 != 0 {
+        if addr & (U::SIZE - 1) != 0 {
             return Err(BusError::BadAddress);
         }
-
         let addr = addr & MASK_ADDRESS_SPACE;
 
         match addr {
@@ -81,7 +83,7 @@ impl BusDevice for Machine {
             0x1F000000..0x1F800000 => Err(BusError::CannotRead),// todo!("Expansion Region 1 (ROM/RAM)"),
             0x1F800000..0x1F800400 => self.scratchpad.read::<U>(addr & 0x3FF),// todo!("Scratchpad (D-Cache used as Fast RAM)"),
             0x1F801000..0x1F802000 => self.io.read::<U>(addr),// todo!("I/O Ports"),
-            0x1F802000..0x1F803000 => Err(BusError::CannotRead),// todo!("Expansion Region 2 (I/O Ports)"),
+            0x1F802000..0x1F803000 => self.dummy.read(addr),// todo!("Expansion Region 2 (I/O Ports)"),
             0x1FA00000..0x1FC00000 => Err(BusError::CannotRead),// todo!("Expansion Region 3 (SRAM BIOS region for DTL cards)"),
             0x1FC00000..0x1FC80000 => self.rom.read::<U>(addr & 0x7FFFF),
             0x1FFE0000..0x1FFE0200 => self.io.read::<U>(addr), // cache control
@@ -91,18 +93,22 @@ impl BusDevice for Machine {
 
     fn write<U: super::bus::Unit>(&self, addr: u32, val: U ) -> super::bus::Result<()> {
         // word alignment check
-        if addr & 3 != 0 {
+        if addr & (U::SIZE - 1) != 0 {
             return Err(BusError::BadAddress);
         }
-
+        else if self.cpu.cop0.caches_isolated() { // ignore writes if caches
+            return  Ok(());
+        }
         let addr = addr & MASK_ADDRESS_SPACE;
+
+
 
         match addr {
             0x00000000..0x00200000 => self.ram.write::<U>(addr & 0x1FFFFF, val),
             0x1F000000..0x1F800000 => Err(BusError::CannotWrite),//todo!("Expansion Region 1 (ROM/RAM)"),
             0x1F800000..0x1F800400 => self.scratchpad.write(addr & 0x3FF, val),//todo!("Scratchpad (D-Cache used as Fast RAM)"),
             0x1F801000..0x1F802000 => self.io.write::<U>(addr, val),// todo!("I/O Ports"),
-            0x1F802000..0x1F803000 => Err(BusError::CannotWrite),//todo!("Expansion Region 2 (I/O Ports)"),
+            0x1F802000..0x1F803000 => self.dummy.write(addr, val),//todo!("Expansion Region 2 (I/O Ports)"),
             0x1FA00000..0x1FC00000 => Err(BusError::CannotWrite),//todo!("Expansion Region 3 (SRAM BIOS region for DTL cards)"),
             0x1FC00000..0x1FC80000 => self.rom.write::<U>(addr & 0x7FFFF, val),
             0x1FFE0000..0x1FFE0200 => self.io.write::<U>(addr, val), // cache control
